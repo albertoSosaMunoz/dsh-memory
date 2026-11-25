@@ -1,0 +1,18 @@
+# dsh-memory — bundle layer
+#
+# This file is what makes the package a DSH *bundle*: `package.json` declares
+# `dsh.bundle.patch: ./cordis.patch.yml`, so when the profile plugin manager
+# installs `dsh-memory` it adds the package to `dsh.profile.bundles` and
+# composes the layer below. Without it the package installs as a plain
+# dependency ("not a profile layer") and nothing gets activated.
+#
+# IMPORTANT — never declare the same entry twice. If you also keep a manual
+# `insert` in your profile's own `cordis.patch.yml` pointing at
+# `./plugins/dsh-memory/index.mjs`, two fibers with the same id register the
+# same four tools. Pick one path: bundle install (this file) OR manual copy.
+- insert:
+    - id: memory
+      name: 'dsh-memory'
+      config:
+        backend: auto
+        mongoPort: 30018
