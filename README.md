@@ -1,73 +1,74 @@
 # dsh-memory
 
-Memoria persistente para DeepSeek Harness, con vectores en MongoDB y **cero
-dependencia de un proveedor de modelos**. Funciona con cualquier modelo que
-hable con DSH porque todo ocurre en el host: recuperación, inyección de
-contexto y tools.
+Persistent memory for DeepSeek Harness, backed by MongoDB vectors and with
+**zero dependency on a model provider**. It works with any model that talks to
+DSH, because everything happens on the host: retrieval, context injection and
+tools.
 
-## Qué hace
+## What it does
 
-1. **Captura** cada mensaje humano y cada respuesta del asistente (sin
-   resultados de herramientas) y lo guarda con un embedding propio.
-2. **Recuerda**: antes de un paso que trae un mensaje humano nuevo, busca los
-   fragmentos más relevantes y los inyecta como `<system-reminder>` en la
-   conversación. Son datos, no instrucciones.
-3. **Informa al modelo** de tres formas: sección corta en el system prompt,
-   cabecera del bloque inyectado y descripciones de las tools.
+1. **Captures** every human message and every assistant reply (tool results are
+   excluded) and stores it with its own embedding.
+2. **Recalls**: before a step that carries new human input, it searches for the
+   most relevant fragments and injects them into the conversation as a
+   `<system-reminder>`. They are data, not instructions.
+3. **Informs the model** in three places: a short section in the system prompt,
+   a header on the injected block, and the tool descriptions.
 4. **Tools**: `memory_search`, `memory_save`, `memory_forget`, `memory_stats`.
 
-## Aprovisionamiento automático
+## Automatic provisioning
 
-Al activarse, el plugin prepara todo solo:
+On activation the plugin prepares everything by itself:
 
-| Backend | Qué hace |
+| Backend | What it does |
 |---|---|
-| `auto` (defecto) | Si Docker responde, levanta **Atlas Local**; si no, arranca `mongod` local |
-| `atlas` | Fuerza Atlas Local; falla si Docker no está disponible |
-| `local` | Fuerza un proceso `mongod` privado |
-| `external` | Solo conecta; no aprovisiona nada |
+| `auto` (default) | If Docker answers, it starts **Atlas Local**; otherwise it launches a local `mongod` |
+| `atlas` | Forces Atlas Local; fails when Docker is unavailable |
+| `local` | Forces a private `mongod` process |
+| `external` | Connects only; provisions nothing |
 
-En modo Atlas: arranca Docker Desktop si está instalado y parado, hace
-`docker pull` de `mongodb/mongodb-atlas-local:8.0` si falta la imagen, crea o
-arranca el contenedor `dsh-memory-atlas` publicando `30018 -> 27017`, espera a
-Mongo y crea el índice `memory_vector` (`$vectorSearch`, cosine, 1024 dims).
+In Atlas mode it starts Docker Desktop if it is installed but stopped, runs
+`docker pull mongodb/mongodb-atlas-local:8.0` when the image is missing, creates
+or starts the `dsh-memory-atlas` container publishing `30018 -> 27017`, waits for
+Mongo and creates the `memory_vector` index (`$vectorSearch`, cosine, 1024 dims).
 
-El progreso se escribe en `~/.dsh/memory/status.json`. La activación no bloquea
-el arranque: la captura y el recall esperan a que el backend esté listo. El
-fichero se reescribe tras cada `memory_save` y, como mucho cada 15 s, tras una
-captura, para que `documents` y `lastCaptureAt` no se queden congelados.
+Progress is written to `~/.dsh/memory/status.json`. Activation never blocks
+startup: capture and recall wait until the backend is ready. The file is
+rewritten after every `memory_save` and at most every 15 s after a capture, so
+`documents` and `lastCaptureAt` do not freeze.
 
-## Instalación
+## Installation
 
-`dsh-memory` es un **bundle** de DSH: `package.json` declara
-`dsh.bundle.patch: ./cordis.patch.yml`, así que el gestor de plugins del perfil
-añade el paquete a `dsh.profile.bundles` y compone la capa con la entrada
-`memory`. No hay dependencias de runtime: el driver de MongoDB viaja bundleado
-en `lib/mongodb.bundle.cjs`, y no hay `prepare` ni `postinstall` (pnpm 11 los
-bloquea en dependencias instaladas desde git).
+`dsh-memory` is a DSH **bundle**: `package.json` declares
+`dsh.bundle.patch: ./cordis.patch.yml`, so the profile plugin manager appends the
+package to `dsh.profile.bundles` and composes the layer that holds the `memory`
+entry. There are no runtime dependencies: the MongoDB driver ships bundled in
+`lib/mongodb.bundle.cjs`, and there is no `prepare` or `postinstall` (pnpm 11
+blocks those on dependencies installed from git).
 
-### Con el gestor de plugins (recomendado)
+### With the plugin manager (recommended)
 
-Web → barra lateral → **Plugins** → instalar, con el spec que corresponda:
+Web → sidebar → **Plugins** → install, with the spec that matches your source:
 
-| Origen | Spec |
+| Source | Spec |
 |---|---|
-| GitHub | `github:USUARIO/dsh-memory` o `git+https://github.com/USUARIO/dsh-memory.git` |
-| Registro npm | `dsh-memory` (si está publicado) |
-| Ruta local | `file:C:\ruta\a\dsh-memory` |
+| GitHub (public) | `github:OWNER/dsh-memory` |
+| GitHub (private, SSH) | `git+ssh://git@github.com/OWNER/dsh-memory.git` |
+| npm registry | `dsh-memory` (if published) |
+| Local path | `file:C:\path\to\dsh-memory` |
 
-El perfil `desktop` lo gestiona la aplicación Electron, así que
-`dsh plugin --profile desktop …` responde *«profile "desktop" is managed
-exclusively by the Electron application»*: la instalación va por la página
-Plugins (o por la tool `plugin_manager`), no por CLI.
+The `desktop` profile is owned by the Electron application, so
+`dsh plugin --profile desktop …` answers *"profile "desktop" is managed
+exclusively by the Electron application"*: install from the Plugins page (or
+through the `plugin_manager` tool), not from the CLI.
 
-### A mano, sin gestor
+### By hand, without the manager
 
-Copiar la carpeta (sin `node_modules`) a
-`~/.dsh/profiles/desktop/plugins/dsh-memory` y añadir su entrada a
-`~/.dsh/profiles/desktop/cordis.patch.yml`. Ojo: una entrada nueva debe ir
-dentro de `insert:`; declararla suelta hace que el loader responda
-`entry "memory" not found` y no la cargue.
+Copy the folder (without `node_modules`) to
+`~/.dsh/profiles/desktop/plugins/dsh-memory` and add its entry to
+`~/.dsh/profiles/desktop/cordis.patch.yml`. Note: a new entry must live inside
+`insert:`; declaring it on its own makes the loader answer
+`entry "memory" not found` and skip it.
 
 ```yaml
 - insert:
@@ -78,94 +79,94 @@ dentro de `insert:`; declararla suelta hace que el loader responda
         mongoPort: 30018
 ```
 
-⚠️ Las dos vías son **alternativas, no acumulables**: bundle instalado +
-entrada manual dejan dos fibers con el mismo `id: memory` registrando los mismos
-cuatro tools.
+⚠️ The two routes are **alternatives, not additive**: an installed bundle plus a
+manual entry leaves two fibers with the same `id: memory` registering the same
+four tools.
 
-Por la vía manual la app de escritorio **no recarga el patch de host en
-caliente**: reinicia DeepSeek Harness una vez. Las sesiones se conservan. Por la
-vía del gestor, un perfil con HMR aplica la capa en caliente; si no lo tiene, el
-resultado avisa de `restart-required`. Verificación:
+With the manual route the desktop app **does not hot-reload the host patch**:
+restart DeepSeek Harness once. Sessions are kept. With the manager, a profile
+that has HMR applies the layer live; if it does not, the result reports
+`restart-required`. Verification:
 
 ```powershell
 Get-Content ~/.dsh/memory/status.json
 mongosh "mongodb://127.0.0.1:30018/?directConnection=true" --eval 'db.getSiblingDB("dsh_memory").memories.countDocuments()'
 ```
 
-Tras el reinicio, `status.json` debe llevar `role: "host"` y el `pid` del
-proceso del host. Si `role` es `test`, lo escribió un script y la activación
-sigue pendiente.
+After the restart `status.json` must carry `role: "host"` and the `pid` of the
+host process. If `role` is `test`, a script wrote it and activation is still
+pending.
 
-## Configuración
+## Configuration
 
-Todas las claves son opcionales; estos son los valores por defecto.
+Every key is optional; these are the defaults.
 
-| Clave | Defecto | Significado |
+| Key | Default | Meaning |
 |---|---|---|
 | `backend` | `auto` | `auto`, `atlas`, `local`, `external` |
-| `mongoUri` | `mongodb://127.0.0.1:30018/?directConnection=true` | Conexión |
-| `database` | `dsh_memory` | Base de datos |
-| `mongoPort` | `30018` | Puerto host (mapeo de Atlas o `mongod` local) |
-| `atlasImage` | `mongodb/mongodb-atlas-local:8.0` | Imagen a usar |
-| `atlasContainer` | `dsh-memory-atlas` | Nombre del contenedor |
-| `atlasVolume` | `dsh_memory_atlas` | Volumen Docker (datos persistentes) |
-| `autoStartMongo` | `true` | Arrancar `mongod` local si hace falta |
-| `mongodPath` | `C:\Program Files\MongoDB\Server\7.0\bin\mongod.exe` | Binario local |
-| `vectorSearch` | `true` | Crear/usar índice `$vectorSearch` en Atlas |
-| `vectorIndex` | `memory_vector` | Nombre del índice |
-| `dim` | `1024` | Dimensiones del embedding (cambiar implica recrear índice) |
-| `scope` | `global` | `global` recuerda entre proyectos; `workspace` filtra por `cwd` |
-| `recallTopK` | `6` | Fragmentos inyectados por mensaje |
-| `recallMaxChars` | `3500` | Presupuesto del bloque inyectado |
-| `recallMinScore` | `0.16` | Umbral de relevancia |
-| `recallTimeoutMs` | `2500` | Si Mongo tarda más, se responde sin memoria |
-| `captureUser` / `captureAssistant` | `true` | Qué se indexa |
-| `captureMaxChars` | `8000` | Recorte por documento |
-| `announce` | `true` | Sección de aviso en el system prompt |
-| `dockerDesktopPath` | `C:\Program Files\Docker\Docker\Docker Desktop.exe` | Para arrancarlo si está parado |
-| `role` | `host` | Etiqueta del proceso que escribe `status.json` (`test` en scripts y tests) |
-| `statusPath` | `~/.dsh/memory/status.json` | Ruta del fichero de estado; los tests usan una temporal |
+| `mongoUri` | `mongodb://127.0.0.1:30018/?directConnection=true` | Connection string |
+| `database` | `dsh_memory` | Database |
+| `mongoPort` | `30018` | Host port (Atlas mapping or local `mongod`) |
+| `atlasImage` | `mongodb/mongodb-atlas-local:8.0` | Image to use |
+| `atlasContainer` | `dsh-memory-atlas` | Container name |
+| `atlasVolume` | `dsh_memory_atlas` | Docker volume (persistent data) |
+| `autoStartMongo` | `true` | Launch a local `mongod` when needed |
+| `mongodPath` | `C:\Program Files\MongoDB\Server\7.0\bin\mongod.exe` | Local binary |
+| `vectorSearch` | `true` | Create/use the `$vectorSearch` index on Atlas |
+| `vectorIndex` | `memory_vector` | Index name |
+| `dim` | `1024` | Embedding dimensions (changing it means recreating the index) |
+| `scope` | `global` | `global` recalls across projects; `workspace` filters by `cwd` |
+| `recallTopK` | `6` | Fragments injected per message |
+| `recallMaxChars` | `3500` | Budget for the injected block |
+| `recallMinScore` | `0.16` | Relevance threshold |
+| `recallTimeoutMs` | `2500` | If Mongo takes longer, the turn answers without memory |
+| `captureUser` / `captureAssistant` | `true` | What gets indexed |
+| `captureMaxChars` | `8000` | Per-document clipping |
+| `announce` | `true` | Announcement section in the system prompt |
+| `dockerDesktopPath` | `C:\Program Files\Docker\Docker\Docker Desktop.exe` | To start it when stopped |
+| `role` | `host` | Label of the process writing `status.json` (`test` in scripts and tests) |
+| `statusPath` | `~/.dsh/memory/status.json` | State file path; tests use a temporary one |
 
-El registro de `apply()` se escribe en `apply.json`, junto a `status.json`. Lista
-las fases que se registraron (`capture`, `recall`, `tool:*`, `announce`) y las que
-fallaron con su mensaje.
+The `apply()` registration report is written to `apply.json`, next to
+`status.json`. It lists the phases that registered (`capture`, `recall`,
+`tool:*`, `announce`) and the ones that failed, with their message.
 
-## Cómo puntúa
+## How it ranks
 
 ```
-score = 0.62 * coseno(query, doc)
-      + 0.28 * textScore normalizado ($text, español)
-      + 0.10 * recencia (vida media 45 días)
-      + 0.08 si está pinned
+score = 0.62 * cosine(query, doc)
+      + 0.28 * normalised textScore ($text, Spanish)
+      + 0.10 * recency (45-day half-life)
+      + 0.08 if pinned
 ```
 
-Los candidatos salen de `$vectorSearch` (Atlas) y del índice de texto; nunca se
-escanea la colección entera. El coseno se recalcula en Node sobre el vector
-guardado, así que el índice Vector sólo acelera la generación de candidatos.
+Candidates come from `$vectorSearch` (Atlas) and from the text index; the whole
+collection is never scanned. Cosine is recomputed in Node over the stored
+vector, so the Vector index only speeds up candidate generation.
 
-## Driver vendorizado (por qué hay un `.cjs` de 1,5 MB)
+## Vendored driver (why there is a 1.5 MB `.cjs`)
 
-El host de DSH instala un `ResolutionRouter` que reescribe los especificadores
-bare hacia su propio árbol de módulos. En Node 24 ese router falla al resolver
-paquetes locales del perfil:
+The DSH host installs a `ResolutionRouter` that rewrites bare specifiers into
+its own module tree. On Node 24 that router fails to resolve packages local to
+the profile:
 
 ```
 TypeError: createRequire.resolve.paths is not a function or its return value is not iterable
     at ResolutionRouter.routeScoped (.../dsh-app-boot/lib/index.js:1423)
 ```
 
-Afecta tanto a `import 'mongodb'` como a `require('mongodb')`, porque el driver
-es CJS y sus `require` internos también pasan por el router. Por eso el driver
-se compila a un único bundle CJS: en runtime solo quedan builtins de Node, que
-no pasan por resolución de paquetes.
+It affects both `import 'mongodb'` and `require('mongodb')`, because the driver
+is CJS and its internal `require` calls also travel through the router. That is
+why the driver is compiled into a single CJS bundle: at runtime only Node
+builtins remain, and those bypass package resolution.
 
-Regenerar el bundle tras actualizar `mongodb`:
+Regenerate the bundle after upgrading `mongodb`:
 
 ```powershell
-cd ~/dev/dsh-memory          # raíz del repo/paquete
-npm install --no-audit --no-fund   # instala mongodb (devDependency, solo para esto)
-# esbuild no es dependencia del paquete: usa el que tengas a mano
-& <ruta-a>\esbuild.cmd `
+cd ~/dev/dsh-memory          # repo/package root
+npm install --no-audit --no-fund   # installs mongodb (devDependency, only for this)
+# esbuild is not a package dependency: use whichever copy you have
+& <path-to>\esbuild.cmd `
   node_modules\mongodb\lib\index.js `
   --bundle --platform=node --format=cjs --target=node20 `
   --outfile=lib\mongodb.bundle.cjs `
@@ -177,74 +178,79 @@ npm install --no-audit --no-fund   # instala mongodb (devDependency, solo para e
 
 ## Embedding
 
-`lib/embed.mjs` implementa un embedding **determinista y sin dependencias**:
-hashing con signo de unigramas, bigramas y 4-gramas de carácter, frecuencia
-sublineal y normalización L2. Ventajas: sin descargas, sin API, reproducible.
-Límite honesto: es **léxico**, no semántico; dos frases que dicen lo mismo con
-palabras distintas pueden no acercarse. Para uso personal el híbrido con `$text`
-cubre la mayoría de los casos.
+`lib/embed.mjs` implements a **deterministic, dependency-free** embedding:
+signed hashing of unigrams, bigrams and character 4-grams, sublinear term
+frequency and L2 normalisation. Advantages: no downloads, no API, reproducible.
+Honest limit: it is **lexical**, not semantic; two sentences that say the same
+thing with different words may not come close. For personal use the hybrid with
+`$text` covers most cases.
 
-Si algún día quieres calidad semántica, el punto de extensión es `embed()`:
-basta con sustituirlo por una llamada a un endpoint OpenAI-compatible y
-reindexar (mismo `dim` o recrear el índice).
+If you ever want semantic quality, the extension point is `embed()`: replace it
+with a call to an OpenAI-compatible endpoint and reindex (same `dim`, or recreate
+the index).
 
-## Privacidad
+## Privacy
 
-- Los datos se quedan en tu máquina: volumen Docker `dsh_memory_atlas` o
+- Data stays on your machine: Docker volume `dsh_memory_atlas` or
   `~/.dsh/mongo/data`.
-- Se guardan mensajes de usuario y asistente; **no** resultados de herramientas,
-  ni imágenes, ni adjuntos.
-- No se envía nada a ningún proveedor de embeddings.
-- `memory_forget(id)` elimina un documento; para borrar todo:
+- User and assistant messages are stored; **not** tool results, images or
+  attachments.
+- Nothing is sent to any embedding provider.
+- `memory_forget(id)` deletes one document; to wipe everything:
   `db.getSiblingDB("dsh_memory").memories.deleteMany({})`.
 
-## Operación
+## Operations
 
 ```powershell
-# estado (role: "host" = plugin vivo; "test" = lo escribió un script)
+# state (role: "host" = plugin alive; "test" = a script wrote it)
 Get-Content ~/.dsh/memory/status.json
 
-# contenedor
+# container
 docker ps --filter name=dsh-memory-atlas
 docker logs --tail 50 dsh-memory-atlas
 
-# índice vectorial
+# vector index
 mongosh "mongodb://127.0.0.1:30018/?directConnection=true" --eval 'db.getSiblingDB("dsh_memory").memories.listSearchIndexes()'
 
-# tests de activación y de lógica (base desechable y status.json temporal)
+# activation and logic tests (throwaway database, temporary status.json)
 cd ~/dev/dsh-memory
 npm test
 
-# smoke end-to-end contra Atlas Local, con índice vectorial real
+# end-to-end smoke against Atlas Local, with a real vector index
 $env:MEMORY_BACKEND="external"; node scripts/smoke.mjs
 ```
 
-## Problemas conocidos
+## Known issues
 
-- **`entry "memory" not found`**: la entrada está declarada suelta en vez de
-  dentro de `- insert:`. Corregido en el ejemplo de instalación.
-- **`status.json` dice `ready` pero no existen las tools `memory_*`**: mira
-  `role`. Si es `test`, lo escribió un script y el host nunca importó el módulo;
-  la señal fiable es `role: "host"`, las cuatro tools registradas y la sección
-  `dsh-memory` en el system prompt. Un script nunca debe apuntar a la base real.
-  Para saber qué falló dentro de `apply()`, lee el `apply.json` que se escribe
-  junto a `status.json`: lista las fases registradas (`capture`, `recall`,
-  `tool:*`, `announce`) y el primero que falló con su mensaje. Cada fase está
-  aislada, así que un fallo en `announce` ya no deja el plugin sin tools.
-- **`failed to import` / `pending (waiting for services)`**: el runtime no pudo
-  importar el plugin. Si el mensaje menciona `ResolutionRouter` o
-  `createRequire.resolve.paths`, falta el bundle CJS del driver o se regeneró
-  mal. Si menciona servicios, `inject` debe ser un array (`['tools']`), no un
-  objeto `{required, optional}`.
-- **El plugin no aparece tras editar el patch**: reinicia la app; el perfil de
-  escritorio no recarga el patch de host en caliente.
-- **`open //./pipe/dockerDesktopLinuxEngine`**: Docker Desktop está parado. El
-  plugin intenta arrancarlo; si no, cae a `mongod` local.
-- **Primera ejecución lenta**: `docker pull` de ~1,5 GB. El estado lo refleja en
+- **`entry "memory" not found`**: the entry is declared on its own instead of
+  inside `- insert:`. Fixed in the installation example.
+- **`status.json` says `ready` but the `memory_*` tools do not exist**: check
+  `role`. If it is `test`, a script wrote it and the host never imported the
+  module; the reliable signal is `role: "host"`, the four registered tools and
+  the `dsh-memory` section in the system prompt. A script must never point at the
+  real database. To find out what failed inside `apply()`, read the `apply.json`
+  written next to `status.json`: it lists the registered phases (`capture`,
+  `recall`, `tool:*`, `announce`) and the first failure with its message. Every
+  phase is isolated, so a failure in `announce` no longer leaves the plugin
+  without tools.
+- **`failed to import` / `pending (waiting for services)`**: the runtime could
+  not import the plugin. If the message mentions `ResolutionRouter` or
+  `createRequire.resolve.paths`, the driver's CJS bundle is missing or was
+  regenerated badly. If it mentions services, `inject` must be an array
+  (`['tools']`), not a `{required, optional}` object.
+- **The plugin does not show up after editing the patch**: restart the app; the
+  desktop profile does not hot-reload the host patch.
+- **`open //./pipe/dockerDesktopLinuxEngine`**: Docker Desktop is stopped. The
+  plugin tries to start it; if it cannot, it falls back to a local `mongod`.
+- **Slow first run**: `docker pull` of ~1.5 GB. The state reflects it in
   `status.json` (`phase: pulling-image`).
-- **`vectorIndexReady: false`**: el índice aún construye o falló; el recall sigue
-  funcionando con texto + recencia.
-- **Cambiar `dim`**: hay que borrar el índice y reindexar; los vectores viejos
-  dejan de ser comparables.
-- **`$text` en español**: el índice usa `default_language: spanish`; consultas en
-  inglés siguen funcionando, con menos stemming.
+- **`vectorIndexReady: false`**: the index is still building or failed; recall
+  keeps working with text + recency.
+- **Changing `dim`**: the index must be dropped and the data reindexed; old
+  vectors stop being comparable.
+- **Spanish `$text`**: the index uses `default_language: spanish`; English
+  queries still work, with less stemming.
+
+## License
+
+BSD-3-Clause. See [LICENSE](LICENSE).
